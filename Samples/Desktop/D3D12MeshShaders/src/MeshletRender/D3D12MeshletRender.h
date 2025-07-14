@@ -82,13 +82,23 @@ private:
 
     /*-------- V1.Instancing --------*/
     
-    struct InstanceConstBuffer
+    struct InstanceData
     {
         XMFLOAT4X4 World;
         XMFLOAT4X4 WorldInTranspose;
     };
 
+    ComPtr<ID3D12Resource> m_instanceBuffer;
+    ComPtr<ID3D12Resource> m_instanceUpload;
 
+    InstanceData* m_instanceData;
+
+    uint32_t m_instanceLevel;
+    uint32_t m_instanceCount;
+
+    bool m_updateInstances;
+
+    void RegenerateInstances();
 
 private:
 

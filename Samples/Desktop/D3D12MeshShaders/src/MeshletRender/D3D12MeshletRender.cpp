@@ -12,6 +12,28 @@
 #include "stdafx.h"
 #include "D3D12MeshletRender.h"
 
+namespace
+{
+    // Limit our dispatch threadgroup count to 65536 for indexing simplicity.
+    const uint32_t c_maxGroupDispatchCount = 65536u;
+
+    // Calculates the size required for constant buffer alignment
+    template <typename T>
+    size_t GetAlignedSize(T size)
+    {
+        const size_t alignment = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
+        const size_t alignedSize = (size + alignment - 1) & ~(alignment - 1);
+        return alignedSize;
+    }
+
+    // An integer version of ceil(value / divisor)
+    template <typename T, typename U>
+    T DivRoundUp(T value, U divisor)
+    {
+        return (value + divisor - 1) / divisor;
+    }
+}
+
 const wchar_t* D3D12MeshletRender::c_meshFilename = L"..\\Assets\\Dragon_LOD0.bin";
 
 const wchar_t* D3D12MeshletRender::c_meshShaderFilename = L"MeshletMS.cso";
@@ -29,6 +51,11 @@ D3D12MeshletRender::D3D12MeshletRender(UINT width, UINT height, std::wstring nam
     , m_frameCounter(0)
     , m_fenceEvent{}
     , m_fenceValues{}
+    // V1. Instancing
+    , m_instanceData(nullptr)
+    , m_instanceLevel(0)
+    , m_instanceCount(1)
+    , m_updateInstances(true)
 { }
 
 void D3D12MeshletRender::OnInit()
@@ -461,4 +488,23 @@ void D3D12MeshletRender::MoveToNextFrame()
 
     // Set the fence value for the next frame.
     m_fenceValues[m_frameIndex] = currentFenceValue + 1;
+}
+
+// V1. Instancing
+void D3D12MeshletRender::RegenerateInstances()
+{
+    m_updateInstances = true;
+
+    const float radius = m_model.GetBoundingSphere().Radius;
+    const float padding = 0.0f;
+    const float spacing = (1.0f + padding) * radius * 2.0f;
+
+    const uint32_t width = m_instanceLevel * 2 + 1;
+    const float extents = spacing * m_instanceLevel;
+
+    m_instanceCount = width * width * width;
+
+    const uint32_t instanceBufferSize = (uint32_t)GetAlignedSize(m_instanceCount * sizeof(InstanceData));
+
+
 }
