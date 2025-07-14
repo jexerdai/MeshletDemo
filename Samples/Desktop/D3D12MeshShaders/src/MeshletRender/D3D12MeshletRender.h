@@ -80,6 +80,18 @@ private:
     ComPtr<ID3D12Fence> m_fence;
     UINT64 m_fenceValues[FrameCount];
 
+    /*-------- V1.Instancing --------*/
+    
+    struct InstanceConstBuffer
+    {
+        XMFLOAT4X4 World;
+        XMFLOAT4X4 WorldInTranspose;
+    };
+
+
+
+private:
+
     void LoadPipeline();
     void LoadAssets();
     void PopulateCommandList();
