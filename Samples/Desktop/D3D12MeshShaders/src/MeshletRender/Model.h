@@ -143,6 +143,9 @@ public:
     uint32_t GetMeshCount() const { return static_cast<uint32_t>(m_meshes.size()); }
     const Mesh& GetMesh(uint32_t i) const { return m_meshes[i]; }
 
+    uint32_t GetPrimitiveCount() const;
+    uint32_t GetVertexCount() const;
+
     const DirectX::BoundingSphere& GetBoundingSphere() const { return m_boundingSphere; }
 
     // Iterator interface

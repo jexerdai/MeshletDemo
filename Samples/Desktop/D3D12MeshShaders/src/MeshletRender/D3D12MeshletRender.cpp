@@ -350,9 +350,10 @@ void D3D12MeshletRender::OnUpdate()
     if (m_frameCounter++ % 30 == 0)
     {
         // Update window text with FPS value.
-        wchar_t fps[64];
-        swprintf_s(fps, L"%ufps", m_timer.GetFramesPerSecond());
-        SetCustomWindowText(fps);
+        wchar_t msg[1024];
+        swprintf_s(msg, L"%ufps, InstanceCount = %d, PrimCount = %d, VertCount = %d", 
+            m_timer.GetFramesPerSecond(), m_instanceCount, m_instanceCount * m_model.GetPrimitiveCount(), m_instanceCount * m_model.GetVertexCount());
+        SetCustomWindowText(msg);
     }
 
     m_camera.Update(static_cast<float>(m_timer.GetElapsedSeconds()));
@@ -377,7 +378,7 @@ void D3D12MeshletRender::OnRender()
     m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
     // Present the frame.
-    ThrowIfFailed(m_swapChain->Present(1, 0));
+    ThrowIfFailed(m_swapChain->Present(0, 0));
 
     MoveToNextFrame();
 }

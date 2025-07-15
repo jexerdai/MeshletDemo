@@ -502,3 +502,27 @@ HRESULT Model::UploadGpuResources(ID3D12Device* device, ID3D12CommandQueue* cmdQ
 
     return S_OK;
 }
+
+uint32_t Model::GetPrimitiveCount() const
+{
+    uint32_t primCount = 0;
+
+    for (const Mesh& eachMesh : m_meshes)
+    {
+        primCount += eachMesh.PrimitiveIndices.size();
+    }
+
+    return primCount;
+}
+
+uint32_t Model::GetVertexCount() const
+{
+    uint32_t vertCount = 0;
+
+    for (const Mesh& eachMesh : m_meshes)
+    {
+        vertCount += eachMesh.VertexCount;
+    }
+
+    return vertCount;
+}
