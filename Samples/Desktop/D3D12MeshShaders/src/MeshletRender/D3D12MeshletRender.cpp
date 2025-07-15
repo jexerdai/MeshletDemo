@@ -396,10 +396,12 @@ void D3D12MeshletRender::OnKeyDown(UINT8 key)
     switch (key)
     {
     case VK_OEM_PLUS:
+    case VK_F1:
         ++m_instanceLevel;
         RegenerateInstances();
         break;
     case VK_OEM_MINUS:
+    case VK_F2:
         if (m_instanceLevel != 0)
         {
             --m_instanceLevel;
@@ -451,7 +453,8 @@ void D3D12MeshletRender::PopulateCommandList()
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
     // Indicate that the back buffer will be used as a render target.
-    const auto toRenderTargetBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    const auto toRenderTargetBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), 
+        D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
     m_commandList->ResourceBarrier(1, &toRenderTargetBarrier);
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), m_frameIndex, m_rtvDescriptorSize);
@@ -579,7 +582,7 @@ void D3D12MeshletRender::RegenerateInstances()
         const CD3DX12_HEAP_PROPERTIES instanceBufferUploadHeapProps(D3D12_HEAP_TYPE_UPLOAD);
 
         ThrowIfFailed(m_device->CreateCommittedResource(
-            &instanceBufferDefaultHeapProps,
+            &instanceBufferUploadHeapProps,
             D3D12_HEAP_FLAG_NONE,
             &instanceBufferDesc,
             D3D12_RESOURCE_STATE_GENERIC_READ,
