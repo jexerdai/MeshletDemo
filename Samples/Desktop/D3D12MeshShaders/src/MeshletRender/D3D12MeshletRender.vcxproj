@@ -107,6 +107,7 @@
     <ClInclude Include="DXSample.h" />
     <ClInclude Include="DXSampleHelper.h" />
     <ClInclude Include="Model.h" />
+    <ClInclude Include="Shared.h" />
     <ClInclude Include="Span.h" />
     <ClInclude Include="SimpleCamera.h" />
     <ClInclude Include="stdafx.h" />

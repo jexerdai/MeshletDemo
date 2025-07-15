@@ -10,6 +10,7 @@
 //*********************************************************
 
 #include "stdafx.h"
+#include "Shared.h"
 #include "D3D12MeshletRender.h"
 
 namespace
@@ -45,8 +46,7 @@ D3D12MeshletRender::D3D12MeshletRender(UINT width, UINT height, std::wstring nam
     , m_scissorRect(0, 0, static_cast<LONG>(width), static_cast<LONG>(height))
     , m_rtvDescriptorSize(0)
     , m_dsvDescriptorSize(0)
-    , m_constantBufferData{}
-    , m_cbvDataBegin(nullptr)
+    , m_constantData(nullptr)
     , m_frameIndex(0)
     , m_frameCounter(0)
     , m_fenceEvent{}
@@ -56,6 +56,7 @@ D3D12MeshletRender::D3D12MeshletRender(UINT width, UINT height, std::wstring nam
     , m_instanceLevel(0)
     , m_instanceCount(1)
     , m_updateInstances(true)
+    , m_drawMeshlets(true)
 { }
 
 void D3D12MeshletRender::OnInit()
@@ -65,6 +66,8 @@ void D3D12MeshletRender::OnInit()
 
     LoadPipeline();
     LoadAssets();
+    // V1. Instancing
+    RegenerateInstances();
 }
 
 // Load the rendering pipeline dependencies.
@@ -250,7 +253,7 @@ void D3D12MeshletRender::LoadPipeline()
         // Map and initialize the constant buffer. We don't unmap this until the
         // app closes. Keeping things mapped for the lifetime of the resource is okay.
         CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
-        ThrowIfFailed(m_constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_cbvDataBegin)));
+        ThrowIfFailed(m_constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_constantData)));
     }
 }
 
@@ -354,16 +357,13 @@ void D3D12MeshletRender::OnUpdate()
 
     m_camera.Update(static_cast<float>(m_timer.GetElapsedSeconds()));
 
-    XMMATRIX world = XMMATRIX(g_XMIdentityR0, g_XMIdentityR1, g_XMIdentityR2, g_XMIdentityR3);
     XMMATRIX view = m_camera.GetViewMatrix();
-    XMMATRIX proj = m_camera.GetProjectionMatrix(XM_PI / 3.0f, m_aspectRatio);
+    XMMATRIX proj = m_camera.GetProjectionMatrix(XM_PI / 3.0f, m_aspectRatio, 1.0f, 1e4f);
     
-    XMStoreFloat4x4(&m_constantBufferData.World, XMMatrixTranspose(world));
-    XMStoreFloat4x4(&m_constantBufferData.WorldView, XMMatrixTranspose(world * view));
-    XMStoreFloat4x4(&m_constantBufferData.WorldViewProj, XMMatrixTranspose(world * view * proj));
-    m_constantBufferData.DrawMeshlets = true;
-
-    memcpy(m_cbvDataBegin + sizeof(SceneConstantBuffer) * m_frameIndex, &m_constantBufferData, sizeof(m_constantBufferData));
+    SceneConstantBuffer& cbData = m_constantData[m_frameIndex];
+    XMStoreFloat4x4(&cbData.View, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&cbData.ViewProj, XMMatrixTranspose(view * proj));
+    cbData.DrawMeshlets = true;
 }
 
 // Render the scene.
@@ -393,6 +393,24 @@ void D3D12MeshletRender::OnDestroy()
 
 void D3D12MeshletRender::OnKeyDown(UINT8 key)
 {
+    switch (key)
+    {
+    case VK_OEM_PLUS:
+        ++m_instanceLevel;
+        RegenerateInstances();
+        break;
+    case VK_OEM_MINUS:
+        if (m_instanceLevel != 0)
+        {
+            --m_instanceLevel;
+            RegenerateInstances();
+        }
+        break;
+    case VK_SPACE:
+        m_drawMeshlets = !m_drawMeshlets;
+        break;
+    }
+
     m_camera.OnKeyDown(key);
 }
 
@@ -413,6 +431,20 @@ void D3D12MeshletRender::PopulateCommandList()
     // re-recording.
     ThrowIfFailed(m_commandList->Reset(m_commandAllocators[m_frameIndex].Get(), m_pipelineState.Get()));
 
+    if (m_updateInstances)
+    {
+        const CD3DX12_RESOURCE_BARRIER toCopyBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_instanceBuffer.Get(),
+            D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_COPY_DEST);
+        m_commandList->ResourceBarrier(1, &toCopyBarrier);
+        m_commandList->CopyResource(m_instanceBuffer.Get(), m_instanceUpload.Get());
+
+        const CD3DX12_RESOURCE_BARRIER toGenericBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_instanceBuffer.Get(), 
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_GENERIC_READ);
+        m_commandList->ResourceBarrier(1, &toGenericBarrier);
+
+        m_updateInstances = false;
+    }
+
     // Set necessary state.
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
     m_commandList->RSSetViewports(1, &m_viewport);
@@ -432,24 +464,46 @@ void D3D12MeshletRender::PopulateCommandList()
     m_commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
     m_commandList->SetGraphicsRootConstantBufferView(0, m_constantBuffer->GetGPUVirtualAddress() + sizeof(SceneConstantBuffer) * m_frameIndex);
+    m_commandList->SetGraphicsRootShaderResourceView(7, m_instanceBuffer->GetGPUVirtualAddress());
 
     for (auto& mesh : m_model)
     {
-        m_commandList->SetGraphicsRoot32BitConstant(1, mesh.IndexSize, 0);
-        m_commandList->SetGraphicsRootShaderResourceView(2, mesh.VertexResources[0]->GetGPUVirtualAddress());
-        m_commandList->SetGraphicsRootShaderResourceView(3, mesh.MeshletResource->GetGPUVirtualAddress());
-        m_commandList->SetGraphicsRootShaderResourceView(4, mesh.UniqueVertexIndexResource->GetGPUVirtualAddress());
-        m_commandList->SetGraphicsRootShaderResourceView(5, mesh.PrimitiveIndexResource->GetGPUVirtualAddress());
+        m_commandList->SetGraphicsRoot32BitConstant(2, mesh.IndexSize, 0);
+        m_commandList->SetGraphicsRootShaderResourceView(3, mesh.VertexResources[0]->GetGPUVirtualAddress());
+        m_commandList->SetGraphicsRootShaderResourceView(4, mesh.MeshletResource->GetGPUVirtualAddress());
+        m_commandList->SetGraphicsRootShaderResourceView(5, mesh.UniqueVertexIndexResource->GetGPUVirtualAddress());
+        m_commandList->SetGraphicsRootShaderResourceView(6, mesh.PrimitiveIndexResource->GetGPUVirtualAddress());
 
         for (auto& subset : mesh.MeshletSubsets)
+        for(uint32_t i = 0; i < mesh.MeshletSubsets.size(); i++)
         {
-            m_commandList->SetGraphicsRoot32BitConstant(1, subset.Offset, 1);
-            m_commandList->DispatchMesh(subset.Count, 1, 1);
+            Subset& subset = mesh.MeshletSubsets[i];
+
+            uint32_t packCount = mesh.GetLastMeshletPackCount(i, MAX_VERTS, MAX_PRIMS);
+            float groupsPerInstance = float(subset.Count - 1) + 1.0f / packCount;
+
+            uint32_t maxInstancePerBatch = static_cast<uint32_t>(float(c_maxGroupDispatchCount) / groupsPerInstance);
+            uint32_t dispatchCount = DivRoundUp(m_instanceCount, maxInstancePerBatch);
+
+            for (uint32_t j = 0; j < dispatchCount; j++)
+            {
+                uint32_t instanceOffset = maxInstancePerBatch * j;
+                uint32_t instanceCount = min(m_instanceCount - instanceOffset, maxInstancePerBatch);
+
+                m_commandList->SetGraphicsRoot32BitConstant(1, instanceCount, 0);
+                m_commandList->SetGraphicsRoot32BitConstant(1, instanceOffset, 1);
+                m_commandList->SetGraphicsRoot32BitConstant(2, subset.Count, 1);
+                m_commandList->SetGraphicsRoot32BitConstant(2, subset.Offset, 2);
+
+                uint32_t groupCount = static_cast<uint32_t>(ceilf(groupsPerInstance * instanceCount));
+                m_commandList->DispatchMesh(groupCount, 1, 1);
+            }
         }
     }
 
     // Indicate that the back buffer will now be used to present.
-    const auto toPresentBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+    const CD3DX12_RESOURCE_BARRIER toPresentBarrier = CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), 
+        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
     m_commandList->ResourceBarrier(1, &toPresentBarrier);
 
     ThrowIfFailed(m_commandList->Close());
@@ -506,5 +560,45 @@ void D3D12MeshletRender::RegenerateInstances()
 
     const uint32_t instanceBufferSize = (uint32_t)GetAlignedSize(m_instanceCount * sizeof(InstanceData));
 
+    if (!m_instanceBuffer || m_instanceBuffer->GetDesc().Width < instanceBufferSize)
+    {
+        WaitForGpu();
 
+        const CD3DX12_HEAP_PROPERTIES instanceBufferDefaultHeapProps(D3D12_HEAP_TYPE_DEFAULT);
+        const CD3DX12_RESOURCE_DESC instanceBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(instanceBufferSize);
+
+        ThrowIfFailed(m_device->CreateCommittedResource(
+            &instanceBufferDefaultHeapProps,
+            D3D12_HEAP_FLAG_NONE,
+            &instanceBufferDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&m_instanceBuffer)
+        ));
+
+        const CD3DX12_HEAP_PROPERTIES instanceBufferUploadHeapProps(D3D12_HEAP_TYPE_UPLOAD);
+
+        ThrowIfFailed(m_device->CreateCommittedResource(
+            &instanceBufferDefaultHeapProps,
+            D3D12_HEAP_FLAG_NONE,
+            &instanceBufferDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&m_instanceUpload)
+        ));
+
+        m_instanceUpload->Map(0, nullptr, reinterpret_cast<void**>(&m_instanceData));
+    }
+
+    for (uint32_t i = 0; i < m_instanceCount; i++)
+    {
+        XMVECTOR index = XMVectorSet(float(i % width), float((i / width) % width), float(i / (width * width)), 0);
+        XMVECTOR location = index * spacing - XMVectorReplicate(extents);
+
+        XMMATRIX world = XMMatrixTranslationFromVector(location);
+
+        InstanceData& inst = m_instanceData[i];
+        XMStoreFloat4x4(&inst.World, XMMatrixTranspose(world));
+        XMStoreFloat4x4(&inst.WorldInvTranspose, XMMatrixTranspose(XMMatrixInverse(nullptr, XMMatrixTranspose(world))));
+    }
 }

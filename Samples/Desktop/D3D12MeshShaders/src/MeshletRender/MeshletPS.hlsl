@@ -11,9 +11,8 @@
 
 struct Constants
 {
-    float4x4 World;
-    float4x4 WorldView;
-    float4x4 WorldViewProj;
+	float4x4 View;
+	float4x4 ViewProj;
     uint     DrawMeshlets;
 };
 

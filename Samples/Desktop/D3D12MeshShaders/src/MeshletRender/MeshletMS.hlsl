@@ -9,34 +9,58 @@
 //
 //*********************************************************
 
+#include "Shared.h"
+
 #define ROOT_SIG "CBV(b0), \
                   RootConstants(b1, num32bitconstants=2), \
+                  RootConstants(b2, num32bitconstants=3), \
                   SRV(t0), \
                   SRV(t1), \
                   SRV(t2), \
-                  SRV(t3)"
+                  SRV(t3), \
+                  SRV(t4)"
 
-struct Constants
+struct FConstants
 {
-    float4x4 World;
-    float4x4 WorldView;
-    float4x4 WorldViewProj;
+	float4x4 View;
+	float4x4 ViewProj;
     uint     DrawMeshlets;
 };
 
-struct MeshInfo
+struct FDrawParams
+{
+	uint InstanceCount;
+	uint InstanceOffset;
+};
+
+struct FMeshInfo
 {
     uint IndexBytes;
+	uint MeshletCount;
     uint MeshletOffset;
 };
 
-struct Vertex
+struct FMeshlet
+{
+	uint VertCount;
+	uint VertOffset;
+	uint PrimCount;
+	uint PrimOffset;
+};
+
+struct FInstanceData
+{
+	float4x4 World;
+	float4x4 WorldInvTranspose;
+};
+
+struct FVertexInput
 {
     float3 Position;
     float3 Normal;
 };
 
-struct VertexOut
+struct FVertexOut
 {
     float4 PositionHS   : SV_Position;
     float3 PositionVS   : POSITION0;
@@ -44,22 +68,15 @@ struct VertexOut
     uint   MeshletIndex : COLOR0;
 };
 
-struct Meshlet
-{
-    uint VertCount;
-    uint VertOffset;
-    uint PrimCount;
-    uint PrimOffset;
-};
+ConstantBuffer<FConstants>  Globals             : register(b0);
+ConstantBuffer<FDrawParams> DrawParams          : register(b1);
+ConstantBuffer<FMeshInfo>   MeshInfo            : register(b2);
 
-ConstantBuffer<Constants> Globals             : register(b0);
-ConstantBuffer<MeshInfo>  MeshInfo            : register(b1);
-
-StructuredBuffer<Vertex>  Vertices            : register(t0);
-StructuredBuffer<Meshlet> Meshlets            : register(t1);
-ByteAddressBuffer         UniqueVertexIndices : register(t2);
-StructuredBuffer<uint>    PrimitiveIndices    : register(t3);
-
+StructuredBuffer<FVertexInput>  Vertices            : register(t0);
+StructuredBuffer<FMeshlet>      Meshlets            : register(t1);
+ByteAddressBuffer               UniqueVertexIndices : register(t2);
+StructuredBuffer<uint>          PrimitiveIndices    : register(t3);
+StructuredBuffer<FInstanceData> InstanceDatas       : register(t4);
 
 /////
 // Data Loaders
@@ -70,12 +87,12 @@ uint3 UnpackPrimitive(uint primitive)
     return uint3(primitive & 0x3FF, (primitive >> 10) & 0x3FF, (primitive >> 20) & 0x3FF);
 }
 
-uint3 GetPrimitive(Meshlet m, uint index)
+uint3 GetPrimitive(FMeshlet m, uint index)
 {
     return UnpackPrimitive(PrimitiveIndices[m.PrimOffset + index]);
 }
 
-uint GetVertexIndex(Meshlet m, uint localIndex)
+uint GetVertexIndex(FMeshlet m, uint localIndex)
 {
     localIndex = m.VertOffset + localIndex;
 
@@ -97,19 +114,21 @@ uint GetVertexIndex(Meshlet m, uint localIndex)
     }
 }
 
-VertexOut GetVertexAttributes(uint meshletIndex, uint vertexIndex)
+FVertexOut GetVertexAttributes(uint meshletIndex, uint vertexIndex, uint instanceIndex)
 {
-    Vertex v = Vertices[vertexIndex];
+	FInstanceData n = InstanceDatas[DrawParams.InstanceOffset + instanceIndex];
+    FVertexInput v = Vertices[vertexIndex];
 
-    VertexOut vout;
-    vout.PositionVS = mul(float4(v.Position, 1), Globals.WorldView).xyz;
-    vout.PositionHS = mul(float4(v.Position, 1), Globals.WorldViewProj);
-    vout.Normal = mul(float4(v.Normal, 0), Globals.World).xyz;
+	float4 positionWS = mul(float4(v.Position, 1), n.World);
+    
+    FVertexOut vout;
+	vout.PositionVS = mul(positionWS, Globals.View).xyz;
+	vout.PositionHS = mul(positionWS, Globals.ViewProj);
+    vout.Normal = mul(float4(v.Normal, 0), n.WorldInvTranspose).xyz;
     vout.MeshletIndex = meshletIndex;
 
     return vout;
 }
-
 
 [RootSignature(ROOT_SIG)]
 [NumThreads(128, 1, 1)]
@@ -117,22 +136,49 @@ VertexOut GetVertexAttributes(uint meshletIndex, uint vertexIndex)
 void main(
     uint gtid : SV_GroupThreadID,
     uint gid : SV_GroupID,
-    out indices uint3 tris[126],
-    out vertices VertexOut verts[64]
+    out vertices FVertexOut verts[MAX_VERTS],
+    out indices uint3 tris[MAX_PRIMS]
 )
 {
-    Meshlet m = Meshlets[MeshInfo.MeshletOffset + gid];
+	uint meshletIndex = gid / DrawParams.InstanceCount;
+    FMeshlet m = Meshlets[meshletIndex];
 
-    SetMeshOutputCounts(m.VertCount, m.PrimCount);
+	uint startInstance = gid % DrawParams.InstanceCount;
+	uint instanceCount = 1;
+    
+    if(meshletIndex == MeshInfo.MeshletCount - 1)
+	{
+		const uint instancesPerGroup = min(MAX_VERTS / m.VertCount, MAX_PRIMS / m.PrimCount);
+        
+		uint unpackedGroupCount = (MeshInfo.MeshletCount - 1) * DrawParams.InstanceCount;
+		uint packedIndex = gid - unpackedGroupCount;
 
-    if (gtid < m.PrimCount)
+		startInstance = packedIndex * instancesPerGroup;
+		instanceCount = min(DrawParams.InstanceCount - startInstance, instancesPerGroup);
+	}
+    
+	const uint vertCount = m.VertCount * instanceCount;
+	const uint primCount = m.PrimCount * instanceCount;
+    
+	SetMeshOutputCounts(vertCount, primCount);
+
+    if (gtid < vertCount)
     {
-        tris[gtid] = GetPrimitive(m, gtid);
-    }
+		uint readIndex = gtid % m.VertCount;
+		uint instanceId = gtid / m.VertCount;
+        
+		uint vertexIndex = GetVertexIndex(m, readIndex);
+		uint instanceIndex = startInstance + instanceId;
+        
+		verts[gtid] = GetVertexAttributes(meshletIndex, vertexIndex, instanceIndex);
 
-    if (gtid < m.VertCount)
+	}
+
+	if (gtid < primCount)
     {
-        uint vertexIndex = GetVertexIndex(m, gtid);
-        verts[gtid] = GetVertexAttributes(gid, vertexIndex);
-    }
+		uint readIndex = gtid % m.PrimCount;
+		uint instanceId = gtid / m.PrimCount;
+        
+		tris[gtid] = GetPrimitive(m, readIndex) + (m.VertCount * instanceId);
+	}
 }

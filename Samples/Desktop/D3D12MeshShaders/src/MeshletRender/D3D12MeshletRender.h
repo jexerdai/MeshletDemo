@@ -42,9 +42,8 @@ private:
 
     _declspec(align(256u)) struct SceneConstantBuffer
     {
-        XMFLOAT4X4 World;
-        XMFLOAT4X4 WorldView;
-        XMFLOAT4X4 WorldViewProj;
+        XMFLOAT4X4 View;
+        XMFLOAT4X4 ViewProj;
         uint32_t   DrawMeshlets;
     };
 
@@ -66,8 +65,7 @@ private:
     UINT m_dsvDescriptorSize;
 
     ComPtr<ID3D12GraphicsCommandList6> m_commandList;
-    SceneConstantBuffer m_constantBufferData;
-    UINT8* m_cbvDataBegin;
+    SceneConstantBuffer* m_constantData;
 
     StepTimer m_timer;
     SimpleCamera m_camera;
@@ -85,7 +83,7 @@ private:
     struct InstanceData
     {
         XMFLOAT4X4 World;
-        XMFLOAT4X4 WorldInTranspose;
+        XMFLOAT4X4 WorldInvTranspose;
     };
 
     ComPtr<ID3D12Resource> m_instanceBuffer;
@@ -97,6 +95,7 @@ private:
     uint32_t m_instanceCount;
 
     bool m_updateInstances;
+    bool m_drawMeshlets;
 
     void RegenerateInstances();
 
