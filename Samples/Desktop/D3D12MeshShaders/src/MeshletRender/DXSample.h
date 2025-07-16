@@ -46,6 +46,8 @@ protected:
 
     void SetCustomWindowText(LPCWSTR text);
 
+    virtual void ToggleFullscreen();
+
     // Viewport dimensions.
     UINT m_width;
     UINT m_height;
@@ -53,6 +55,7 @@ protected:
 
     // Adapter info.
     bool m_useWarpDevice;
+    bool m_fullscreen;
 
 private:
     // Root assets path.

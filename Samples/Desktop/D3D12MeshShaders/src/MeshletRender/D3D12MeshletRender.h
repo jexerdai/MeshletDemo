@@ -107,6 +107,8 @@ private:
     void MoveToNextFrame();
     void WaitForGpu();
 
+    //void ToggleFullscreen() override;
+
 private:
     static const wchar_t* c_meshFilename;
     static const wchar_t* c_meshShaderFilename;

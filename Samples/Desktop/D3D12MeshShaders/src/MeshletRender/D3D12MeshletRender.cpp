@@ -90,6 +90,7 @@ void D3D12MeshletRender::LoadPipeline()
     }
 #endif
 
+
     ComPtr<IDXGIFactory4> factory;
     ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&factory)));
 
@@ -114,6 +115,18 @@ void D3D12MeshletRender::LoadPipeline()
             D3D_FEATURE_LEVEL_11_0,
             IID_PPV_ARGS(&m_device)
             ));
+    }
+
+    bool allowTearing = false;
+    IDXGIFactory5* factory5 = nullptr;
+    if (SUCCEEDED(factory->QueryInterface(IID_PPV_ARGS(&factory5))))
+    {
+        factory5->CheckFeatureSupport(
+            DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+            &allowTearing,
+            sizeof(allowTearing)
+        );
+        factory5->Release();
     }
 
     D3D12_FEATURE_DATA_SHADER_MODEL shaderModel = { D3D_SHADER_MODEL_6_5 };
@@ -412,6 +425,9 @@ void D3D12MeshletRender::OnKeyDown(UINT8 key)
     case VK_SPACE:
         m_drawMeshlets = !m_drawMeshlets;
         break;
+    case VK_ESCAPE:
+        ToggleFullscreen();
+        break;
     }
 
     m_camera.OnKeyDown(key);
@@ -547,6 +563,16 @@ void D3D12MeshletRender::MoveToNextFrame()
     // Set the fence value for the next frame.
     m_fenceValues[m_frameIndex] = currentFenceValue + 1;
 }
+//
+//void D3D12MeshletRender::ToggleFullscreen()
+//{
+//    m_fullscreen = !m_fullscreen;
+//
+//    if (m_swapChain)
+//    {
+//        m_swapChain->SetFullscreenState(m_fullscreen, nullptr);
+//    }
+//}
 
 // V1. Instancing
 void D3D12MeshletRender::RegenerateInstances()
