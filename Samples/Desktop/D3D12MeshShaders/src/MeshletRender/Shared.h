@@ -12,3 +12,4 @@
 
 #define MAX_VERTS 64
 #define MAX_PRIMS 126
+#define MAX_LOD_LEVELS 8

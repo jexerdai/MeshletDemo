@@ -33,6 +33,16 @@ namespace
     {
         return (value + divisor - 1) / divisor;
     }
+
+    enum EDescriptorHeapIndex
+    {
+        SRV_MeshInfoLODs           = 0,
+        SRV_VertexLODs             = SRV_MeshInfoLODs          + MAX_LOD_LEVELS,
+        SRV_MeshletLODs            = SRV_VertexLODs            + MAX_LOD_LEVELS,
+        SRV_UniqueVertexIndexLODs  = SRV_MeshletLODs           + MAX_LOD_LEVELS,
+        SRV_PrimitiveIndexLODs     = SRV_UniqueVertexIndexLODs + MAX_LOD_LEVELS,
+        SRV_Count                  = SRV_PrimitiveIndexLODs    + MAX_LOD_LEVELS,
+    };
 }
 
 const wchar_t* D3D12MeshletRender::c_meshFilename = L"..\\Assets\\Dragon_LOD0.bin";
@@ -198,6 +208,15 @@ void D3D12MeshletRender::LoadPipeline()
 
     // Create descriptor heaps.
     {
+        // Describe and create a shader resourc e view (SRV) descriptor heap.
+        D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
+        srvHeapDesc.NumDescriptors = SRV_Count;
+        srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        ThrowIfFailed(m_device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_srvHeap)));
+
+        m_srvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
         // Describe and create a render target view (RTV) descriptor heap.
         D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
         rtvHeapDesc.NumDescriptors = FrameCount;
