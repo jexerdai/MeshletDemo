@@ -38,45 +38,53 @@ public:
     virtual void OnKeyUp(UINT8 key);
 
 private:
+
     static const UINT FrameCount = 2;
 
     _declspec(align(256u)) struct SceneConstantBuffer
     {
         XMFLOAT4X4 View;
         XMFLOAT4X4 ViewProj;
-        uint32_t   DrawMeshlets;
+        UINT       DrawMeshlets;
     };
 
     // Pipeline objects.
-    CD3DX12_VIEWPORT m_viewport;
-    CD3DX12_RECT m_scissorRect;
-    ComPtr<IDXGISwapChain3> m_swapChain;
-    ComPtr<ID3D12Device2> m_device;
-    ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
-    ComPtr<ID3D12Resource> m_depthStencil;
-    ComPtr<ID3D12CommandAllocator> m_commandAllocators[FrameCount];
-    ComPtr<ID3D12CommandQueue> m_commandQueue;
-    ComPtr<ID3D12RootSignature> m_rootSignature;
+    CD3DX12_VIEWPORT    m_viewport;
+    CD3DX12_RECT        m_scissorRect;
+
+    ComPtr<ID3D12Device2>        m_device;
+    ComPtr<IDXGISwapChain3>      m_swapChain;
+
+    ComPtr<ID3D12RootSignature>  m_rootSignature;
+    ComPtr<ID3D12PipelineState>  m_pipelineState;
+
+    ComPtr<ID3D12Resource>       m_renderTargets[FrameCount];
+    ComPtr<ID3D12Resource>       m_depthStencil;
+    
+    ComPtr<ID3D12CommandAllocator>      m_commandAllocators[FrameCount];
+    ComPtr<ID3D12CommandQueue>          m_commandQueue;
+    ComPtr<ID3D12GraphicsCommandList6>  m_commandList;
+
+    UINT               m_srvDescriptorSize;
+    UINT               m_rtvDescriptorSize;
+    UINT               m_dsvDescriptorSize;
+    ComPtr<ID3D12DescriptorHeap> m_srvHeap;
     ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
     ComPtr<ID3D12DescriptorHeap> m_dsvHeap;
-    ComPtr<ID3D12PipelineState> m_pipelineState;
+
     ComPtr<ID3D12Resource> m_constantBuffer;
-    UINT m_rtvDescriptorSize;
-    UINT m_dsvDescriptorSize;
+    SceneConstantBuffer*   m_constantData;
 
-    ComPtr<ID3D12GraphicsCommandList6> m_commandList;
-    SceneConstantBuffer* m_constantData;
-
-    StepTimer m_timer;
-    SimpleCamera m_camera;
-    Model m_model;
+    StepTimer     m_timer;
+    SimpleCamera  m_camera;
+    Model         m_model;
     
     // Synchronization objects.
-    UINT m_frameIndex;
-    UINT m_frameCounter;
-    HANDLE m_fenceEvent;
+    UINT                m_frameIndex;
+    UINT                m_frameCounter;
+    HANDLE              m_fenceEvent;
+    UINT64              m_fenceValues[FrameCount];
     ComPtr<ID3D12Fence> m_fence;
-    UINT64 m_fenceValues[FrameCount];
 
     /*-------- V1.Instancing --------*/
     
@@ -91,8 +99,8 @@ private:
 
     InstanceData* m_instanceData;
 
-    uint32_t m_instanceLevel;
-    uint32_t m_instanceCount;
+    UINT m_instanceLevel;
+    UINT m_instanceCount;
 
     bool m_updateInstances;
     bool m_drawMeshlets;

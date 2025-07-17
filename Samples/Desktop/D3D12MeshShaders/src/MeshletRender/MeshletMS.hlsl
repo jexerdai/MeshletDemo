@@ -81,15 +81,15 @@ StructuredBuffer<FInstanceData> InstanceDatas       : register(t4);
 /////
 // Data Loaders
 
-uint3 UnpackPrimitive(uint primitive)
+uint3 UnpackPrimitiveIndex(uint primitive)
 {
     // Unpacks a 10 bits per index triangle from a 32-bit uint.
     return uint3(primitive & 0x3FF, (primitive >> 10) & 0x3FF, (primitive >> 20) & 0x3FF);
 }
 
-uint3 GetPrimitive(FMeshlet m, uint index)
+uint3 GetPrimitiveIndex(FMeshlet m, uint index)
 {
-    return UnpackPrimitive(PrimitiveIndices[m.PrimOffset + index]);
+    return UnpackPrimitiveIndex(PrimitiveIndices[m.PrimOffset + index]);
 }
 
 uint GetVertexIndex(FMeshlet m, uint localIndex)
@@ -179,6 +179,6 @@ void main(
 		uint readIndex = gtid % m.PrimCount;
 		uint instanceId = gtid / m.PrimCount;
         
-		tris[gtid] = GetPrimitive(m, readIndex) + (m.VertCount * instanceId);
+		tris[gtid] = GetPrimitiveIndex(m, readIndex) + (m.VertCount * instanceId);
 	}
 }

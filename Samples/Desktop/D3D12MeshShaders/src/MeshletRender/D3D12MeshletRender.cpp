@@ -44,13 +44,31 @@ D3D12MeshletRender::D3D12MeshletRender(UINT width, UINT height, std::wstring nam
     : DXSample(width, height, name)
     , m_viewport(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height))
     , m_scissorRect(0, 0, static_cast<LONG>(width), static_cast<LONG>(height))
+    , m_device{}
+    , m_swapChain{}
+    , m_rootSignature{}
+    , m_pipelineState{}
+    , m_renderTargets{}
+    , m_depthStencil{}
+    , m_commandAllocators{}
+    , m_commandQueue{}
+    , m_commandList{}
+    , m_srvDescriptorSize(0)
     , m_rtvDescriptorSize(0)
     , m_dsvDescriptorSize(0)
+    , m_srvHeap{}
+    , m_rtvHeap{}
+    , m_dsvHeap{}
+    , m_constantBuffer{}
     , m_constantData(nullptr)
+    , m_timer{}
+    , m_camera{}
+    , m_model{}
     , m_frameIndex(0)
     , m_frameCounter(0)
-    , m_fenceEvent{}
+    , m_fenceEvent(nullptr)
     , m_fenceValues{}
+    , m_fence{}
     // V1. Instancing
     , m_instanceData(nullptr)
     , m_instanceLevel(0)
