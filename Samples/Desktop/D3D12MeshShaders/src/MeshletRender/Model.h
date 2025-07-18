@@ -16,7 +16,7 @@
 
 struct Attribute
 {
-    enum EType : uint32_t
+    enum EType : UINT
     {
         Position,
         Normal,
@@ -27,37 +27,37 @@ struct Attribute
     };
 
     EType    Type;
-    uint32_t Offset;
+    UINT Offset;
 };
 
 struct Subset
 {
-    uint32_t Offset;
-    uint32_t Count;
+    UINT Offset;
+    UINT Count;
 };
 
 struct MeshInfo
 {
-    uint32_t IndexSize;
-    uint32_t MeshletCount;
+    UINT IndexSize;
+    UINT MeshletCount;
 
-    uint32_t LastMeshletVertCount;
-    uint32_t LastMeshletPrimCount;
+    UINT LastMeshletVertCount;
+    UINT LastMeshletPrimCount;
 };
 
 struct Meshlet
 {
-    uint32_t VertCount;
-    uint32_t VertOffset;
-    uint32_t PrimCount;
-    uint32_t PrimOffset;
+    UINT VertCount;
+    UINT VertOffset;
+    UINT PrimCount;
+    UINT PrimOffset;
 };
 
 struct PackedTriangle
 {
-    uint32_t i0 : 10;
-    uint32_t i1 : 10;
-    uint32_t i2 : 10;
+    UINT i0 : 10;
+    UINT i1 : 10;
+    UINT i2 : 10;
 };
 
 struct CullData
@@ -73,14 +73,14 @@ struct Mesh
     D3D12_INPUT_LAYOUT_DESC    LayoutDesc;
 
     std::vector<Span<uint8_t>> Vertices;
-    std::vector<uint32_t>      VertexStrides;
-    uint32_t                   VertexCount;
+    std::vector<UINT>      VertexStrides;
+    UINT                   VertexCount;
     DirectX::BoundingSphere    BoundingSphere;
 
     Span<Subset>               IndexSubsets;
     Span<uint8_t>              Indices;
-    uint32_t                   IndexSize;
-    uint32_t                   IndexCount;
+    UINT                   IndexSize;
+    UINT                   IndexCount;
 
     Span<Subset>               MeshletSubsets;
     Span<Meshlet>              Meshlets;
@@ -101,7 +101,7 @@ struct Mesh
     Microsoft::WRL::ComPtr<ID3D12Resource>              MeshInfoResource;
 
     // Calculates the number of instances of the last meshlet which can be packed into a single threadgroup.
-    uint32_t GetLastMeshletPackCount(uint32_t subsetIndex, uint32_t maxGroupVerts, uint32_t maxGroupPrims) 
+    UINT GetLastMeshletPackCount(UINT subsetIndex, UINT maxGroupVerts, UINT maxGroupPrims) 
     { 
         if (Meshlets.size() == 0)
             return 0;
@@ -112,7 +112,7 @@ struct Mesh
         return min(maxGroupVerts / meshlet.VertCount, maxGroupPrims / meshlet.PrimCount);
     }
 
-    void GetPrimitive(uint32_t index, uint32_t& i0, uint32_t& i1, uint32_t& i2) const
+    void GetPrimitive(UINT index, UINT& i0, UINT& i1, UINT& i2) const
     {
         auto prim = PrimitiveIndices[index];
         i0 = prim.i0;
@@ -120,12 +120,12 @@ struct Mesh
         i2 = prim.i2;
     }
 
-    uint32_t GetVertexIndex(uint32_t index) const
+    UINT GetVertexIndex(UINT index) const
     {
         const uint8_t* addr = UniqueVertexIndices.data() + index * IndexSize;
         if (IndexSize == 4)
         {
-            return *reinterpret_cast<const uint32_t*>(addr);
+            return *reinterpret_cast<const UINT*>(addr);
         }
         else 
         {
@@ -140,11 +140,11 @@ public:
     HRESULT LoadFromFile(const wchar_t* filename);
     HRESULT UploadGpuResources(ID3D12Device* device, ID3D12CommandQueue* cmdQueue, ID3D12CommandAllocator* cmdAlloc, ID3D12GraphicsCommandList* cmdList);
 
-    uint32_t GetMeshCount() const { return static_cast<uint32_t>(m_meshes.size()); }
-    const Mesh& GetMesh(uint32_t i) const { return m_meshes[i]; }
+    UINT GetMeshCount() const { return static_cast<UINT>(m_meshes.size()); }
+    const Mesh& GetMesh(UINT i) const { return m_meshes[i]; }
 
-    uint32_t GetPrimitiveCount() const;
-    uint32_t GetVertexCount() const;
+    UINT GetPrimitiveCount() const;
+    UINT GetVertexCount() const;
 
     const DirectX::BoundingSphere& GetBoundingSphere() const { return m_boundingSphere; }
 

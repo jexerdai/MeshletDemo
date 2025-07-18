@@ -75,9 +75,9 @@ private:
     ComPtr<ID3D12Resource> m_constantBuffer;
     SceneConstantBuffer*   m_constantData;
 
-    StepTimer     m_timer;
-    SimpleCamera  m_camera;
-    Model         m_model;
+    StepTimer              m_timer;
+    SimpleCamera           m_camera;
+    std::vector<Model>     m_modelLODs;
     
     // Synchronization objects.
     UINT                m_frameIndex;
@@ -118,7 +118,10 @@ private:
     //void ToggleFullscreen() override;
 
 private:
-    static const wchar_t* c_meshFilename;
+
+    static const wchar_t* c_lodFilenames[];
+    
+    static const wchar_t* c_ampShaderFilename;
     static const wchar_t* c_meshShaderFilename;
     static const wchar_t* c_pixelShaderFilename;
 };

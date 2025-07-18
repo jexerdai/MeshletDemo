@@ -16,7 +16,7 @@
 namespace
 {
     // Limit our dispatch threadgroup count to 65536 for indexing simplicity.
-    const uint32_t c_maxGroupDispatchCount = 65536u;
+    const UINT c_maxGroupDispatchCount = 65536u;
 
     // Calculates the size required for constant buffer alignment
     template <typename T>
@@ -45,8 +45,17 @@ namespace
     };
 }
 
-const wchar_t* D3D12MeshletRender::c_meshFilename = L"..\\Assets\\Dragon_LOD0.bin";
+const wchar_t* D3D12MeshletRender::c_lodFilenames[] =
+{
+    L"..\\Assets\\Dragon_LOD0.bin",
+    L"..\\Assets\\Dragon_LOD1.bin",
+    L"..\\Assets\\Dragon_LOD2.bin",
+    L"..\\Assets\\Dragon_LOD3.bin",
+    L"..\\Assets\\Dragon_LOD4.bin",
+    L"..\\Assets\\Dragon_LOD5.bin",
+};
 
+const wchar_t* D3D12MeshletRender::c_ampShaderFilename = L"MeshletAS.cso";
 const wchar_t* D3D12MeshletRender::c_meshShaderFilename = L"MeshletMS.cso";
 const wchar_t* D3D12MeshletRender::c_pixelShaderFilename = L"MeshletPS.cso";
 
@@ -73,7 +82,7 @@ D3D12MeshletRender::D3D12MeshletRender(UINT width, UINT height, std::wstring nam
     , m_constantData(nullptr)
     , m_timer{}
     , m_camera{}
-    , m_model{}
+    , m_modelLODs{}
     , m_frameIndex(0)
     , m_frameCounter(0)
     , m_fenceEvent(nullptr)
@@ -315,9 +324,10 @@ void D3D12MeshletRender::LoadAssets()
         struct 
         { 
             byte* data; 
-            uint32_t size; 
-        } meshShader, pixelShader;
+            UINT size; 
+        } ampShader, meshShader, pixelShader;
 
+        ReadDataFromFile(GetAssetFullPath(c_ampShaderFilename).c_str(), &ampShader.data, &ampShader.size);
         ReadDataFromFile(GetAssetFullPath(c_meshShaderFilename).c_str(), &meshShader.data, &meshShader.size);
         ReadDataFromFile(GetAssetFullPath(c_pixelShaderFilename).c_str(), &pixelShader.data, &pixelShader.size);
 
@@ -326,6 +336,7 @@ void D3D12MeshletRender::LoadAssets()
 
         D3DX12_MESH_SHADER_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.pRootSignature        = m_rootSignature.Get();
+        psoDesc.AS                    = { ampShader.data, ampShader.size };
         psoDesc.MS                    = { meshShader.data, meshShader.size };
         psoDesc.PS                    = { pixelShader.data, pixelShader.size };
         psoDesc.NumRenderTargets      = 1;
@@ -353,26 +364,97 @@ void D3D12MeshletRender::LoadAssets()
     // to record yet. The main loop expects it to be closed, so close it now.
     ThrowIfFailed(m_commandList->Close());
 
-    m_model.LoadFromFile(c_meshFilename);
-    m_model.UploadGpuResources(m_device.Get(), m_commandQueue.Get(), m_commandAllocators[m_frameIndex].Get(), m_commandList.Get());
+    m_modelLODs.resize(_countof(c_lodFilenames));
+    for (UINT i = 0; i < m_modelLODs.size(); i++)
+    {
+        Model& lod = m_modelLODs[i];
+
+        lod.LoadFromFile(c_lodFilenames[i]);
+        lod.UploadGpuResources(m_device.Get(), m_commandQueue.Get(), m_commandAllocators[m_frameIndex].Get(), m_commandList.Get());
 
 #ifdef _DEBUG
-    // Mesh shader file expects a certain vertex layout; assert our mesh conforms to that layout.
-    const D3D12_INPUT_ELEMENT_DESC c_elementDescs[2] =
-    {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 1 },
-        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 1 },
-    };
+        const D3D12_INPUT_ELEMENT_DESC c_elementDescs[2] =
+        {
+            { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 1 },
+            { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 1},
+        };
 
-    for (auto& mesh : m_model)
-    {
-        assert(mesh.LayoutDesc.NumElements == 2);
+        assert(lod.GetMesh(0).LayoutDesc.NumElements == 2);
 
-        for (uint32_t i = 0; i < _countof(c_elementDescs); ++i)
-            assert(std::memcmp(&mesh.LayoutElems[i], &c_elementDescs[i], sizeof(D3D12_INPUT_ELEMENT_DESC)) == 0);
-    }
+        for (UINT i = 0; i < _countof(c_elementDescs); i++)
+        {
+            assert(std::memcmp(&lod.GetMesh(0).LayoutElems[i], &c_elementDescs[i], sizeof(D3D12_INPUT_ELEMENT_DESC)) == 0);
+        }
 #endif
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
+    auto OffsetHandle = [=](UINT index) { return D3D12_CPU_DESCRIPTOR_HANDLE{ srvHandle.ptr + SIZE_T(index) * m_srvDescriptorSize }; };
     
+    for (UINT i = 0; i < m_modelLODs.size(); i++)
+    {
+        const Mesh& m = m_modelLODs[i].GetMesh(0);
+
+        // Mesh Info Buffers
+        D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+        cbvDesc.BufferLocation  = m.MeshInfoResource->GetGPUVirtualAddress();
+        cbvDesc.SizeInBytes     = GetAlignedSize<UINT>(sizeof(MeshInfo));
+        m_device->CreateConstantBufferView(&cbvDesc, OffsetHandle(SRV_MeshInfoLODs + i));
+
+        //
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Format                  = DXGI_FORMAT_UNKNOWN;
+        srvDesc.ViewDimension           = D3D12_SRV_DIMENSION_BUFFER;
+        srvDesc.Buffer.FirstElement     = 0;
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+        // Vertices
+        srvDesc.Buffer.StructureByteStride  = m.VertexStrides[0];
+        srvDesc.Buffer.NumElements          = m.VertexCount;
+        m_device->CreateShaderResourceView(m.VertexResources[0].Get(), &srvDesc, OffsetHandle(SRV_VertexLODs + i));
+
+        // Meshlets
+        srvDesc.Buffer.StructureByteStride  = sizeof(Meshlet);
+        srvDesc.Buffer.NumElements          = m.Meshlets.size();
+        m_device->CreateShaderResourceView(m.MeshletResource.Get(), &srvDesc, OffsetHandle(SRV_VertexLODs + i));
+
+        // Primitive Indices
+        srvDesc.Buffer.StructureByteStride  = sizeof(UINT);
+        srvDesc.Buffer.NumElements          = m.IndexCount / 3;
+        m_device->CreateShaderResourceView(m.PrimitiveIndexResource.Get(), &srvDesc, OffsetHandle(SRV_PrimitiveIndexLODs + i));
+
+        // Unique Vertex Indices
+        srvDesc.Format                      = DXGI_FORMAT_R32_TYPELESS;
+        srvDesc.Buffer.StructureByteStride  = 0;
+        srvDesc.Buffer.NumElements          = DivRoundUp(m.UniqueVertexIndices.size(), 4);
+        srvDesc.Buffer.Flags                = D3D12_BUFFER_SRV_FLAG_RAW;
+        m_device->CreateShaderResourceView(m.UniqueVertexIndexResource.Get(), &srvDesc, OffsetHandle(SRV_UniqueVertexIndexLODs + i));
+    }
+
+    for (UINT i = m_modelLODs.size(); i < MAX_LOD_LEVELS; i++)
+    {
+        m_device->CreateConstantBufferView(nullptr, OffsetHandle(SRV_MeshInfoLODs + i));
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Format                   = DXGI_FORMAT_UNKNOWN;
+        srvDesc.ViewDimension            = D3D12_SRV_DIMENSION_BUFFER;
+        srvDesc.Shader4ComponentMapping  = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+        srvDesc.Buffer.StructureByteStride = 24;
+        m_device->CreateShaderResourceView(nullptr, &srvDesc, OffsetHandle(SRV_VertexLODs + i));
+
+        srvDesc.Buffer.StructureByteStride = sizeof(Meshlet);
+        m_device->CreateShaderResourceView(nullptr, &srvDesc, OffsetHandle(SRV_MeshletLODs + i));
+
+        srvDesc.Buffer.StructureByteStride = sizeof(UINT);
+        m_device->CreateShaderResourceView(nullptr, &srvDesc, OffsetHandle(SRV_PrimitiveIndexLODs + i));
+
+        srvDesc.Format                      = DXGI_FORMAT_R32_TYPELESS;
+        srvDesc.Buffer.StructureByteStride  = 0;
+        srvDesc.Buffer.Flags                = D3D12_BUFFER_SRV_FLAG_RAW;
+        m_device->CreateShaderResourceView(nullptr, &srvDesc, OffsetHandle(SRV_UniqueVertexIndexLODs + i));
+    }
+
     // Create synchronization objects and wait until assets have been uploaded to the GPU.
     {
         ThrowIfFailed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
@@ -532,27 +614,27 @@ void D3D12MeshletRender::PopulateCommandList()
         m_commandList->SetGraphicsRootShaderResourceView(6, mesh.PrimitiveIndexResource->GetGPUVirtualAddress());
 
         for (auto& subset : mesh.MeshletSubsets)
-        for(uint32_t i = 0; i < mesh.MeshletSubsets.size(); i++)
+        for(UINT i = 0; i < mesh.MeshletSubsets.size(); i++)
         {
             Subset& subset = mesh.MeshletSubsets[i];
 
-            uint32_t packCount = mesh.GetLastMeshletPackCount(i, MAX_VERTS, MAX_PRIMS);
+            UINT packCount = mesh.GetLastMeshletPackCount(i, MAX_VERTS, MAX_PRIMS);
             float groupsPerInstance = float(subset.Count - 1) + 1.0f / packCount;
 
-            uint32_t maxInstancePerBatch = static_cast<uint32_t>(float(c_maxGroupDispatchCount) / groupsPerInstance);
-            uint32_t dispatchCount = DivRoundUp(m_instanceCount, maxInstancePerBatch);
+            UINT maxInstancePerBatch = static_cast<UINT>(float(c_maxGroupDispatchCount) / groupsPerInstance);
+            UINT dispatchCount = DivRoundUp(m_instanceCount, maxInstancePerBatch);
 
-            for (uint32_t j = 0; j < dispatchCount; j++)
+            for (UINT j = 0; j < dispatchCount; j++)
             {
-                uint32_t instanceOffset = maxInstancePerBatch * j;
-                uint32_t instanceCount = min(m_instanceCount - instanceOffset, maxInstancePerBatch);
+                UINT instanceOffset = maxInstancePerBatch * j;
+                UINT instanceCount = min(m_instanceCount - instanceOffset, maxInstancePerBatch);
 
                 m_commandList->SetGraphicsRoot32BitConstant(1, instanceCount, 0);
                 m_commandList->SetGraphicsRoot32BitConstant(1, instanceOffset, 1);
                 m_commandList->SetGraphicsRoot32BitConstant(2, subset.Count, 1);
                 m_commandList->SetGraphicsRoot32BitConstant(2, subset.Offset, 2);
 
-                uint32_t groupCount = static_cast<uint32_t>(ceilf(groupsPerInstance * instanceCount));
+                UINT groupCount = static_cast<UINT>(ceilf(groupsPerInstance * instanceCount));
                 m_commandList->DispatchMesh(groupCount, 1, 1);
             }
         }
@@ -620,12 +702,12 @@ void D3D12MeshletRender::RegenerateInstances()
     const float padding = 0.0f;
     const float spacing = (1.0f + padding) * radius * 2.0f;
 
-    const uint32_t width = m_instanceLevel * 2 + 1;
+    const UINT width = m_instanceLevel * 2 + 1;
     const float extents = spacing * m_instanceLevel;
 
     m_instanceCount = width * width * width;
 
-    const uint32_t instanceBufferSize = (uint32_t)GetAlignedSize(m_instanceCount * sizeof(InstanceData));
+    const UINT instanceBufferSize = (UINT)GetAlignedSize(m_instanceCount * sizeof(InstanceData));
 
     if (!m_instanceBuffer || m_instanceBuffer->GetDesc().Width < instanceBufferSize)
     {
@@ -657,7 +739,7 @@ void D3D12MeshletRender::RegenerateInstances()
         m_instanceUpload->Map(0, nullptr, reinterpret_cast<void**>(&m_instanceData));
     }
 
-    for (uint32_t i = 0; i < m_instanceCount; i++)
+    for (UINT i = 0; i < m_instanceCount; i++)
     {
         XMVECTOR index = XMVectorSet(float(i % width), float((i / width) % width), float(i / (width * width)), 0);
         XMVECTOR location = index * spacing - XMVectorReplicate(extents);
